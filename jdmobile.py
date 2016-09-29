@@ -7,31 +7,45 @@ import time
 import urllib2
 import xlwt
 
+proxies1 = {'http':'http://203.187.160.133:80'}          # 北京市海淀区
+proxies2 = {'http':'http://122.224.183.170:9999'}        # 浙江省杭州市
+proxies3 = {'http':'http://113.66.170.40:1080'}          # 广东省广州市
+proxies4 = {'http':'http://182.254.223.93.3128'}         # 广东省深圳市
+
+proxies = {}
+
+
 
 class JDMobile:
 
     def __init__(self, keyword):
         self.keyword = keyword
 
+
     def get_url(self, page):
         url = 'http://so.m.jd.com/ware/searchList.action?_format_=json&stock=1&sort=&&page=%s&keyword=%s'% (page, self.keyword)
         return url
 
     def get_wareList(self):
+
+        """获取商品排名列表"""
+
         wareList = list()
         page = 1
         while True:
             url = self.get_url(page)
-            content = urllib.urlopen(url).read()
+            print proxies
+            content = urllib.urlopen(url, proxies=proxies).read()
             content = content.replace('\n', '')
             wareList_content = self.match_wareList(content)
-            if wareList_content is None or wareList.__len__() >= 2:
+            if wareList_content is None or wareList.__len__() >= 200:
                 break
             ware_ids = self.match_wareId(wareList_content)
             for id in ware_ids:
                 wareList.append(id)
             page += 1
-            time.sleep(3)
+            # time.sleep(3)
+        print 'len:', wareList.__len__()
 
         return wareList
 
@@ -58,7 +72,7 @@ class JDitem:
     @staticmethod
     def get_price(id):
         price_url = 'http://p.3.cn/prices/get?type=1&area=1_2802_2821&pdtk=&pduid=911197429&pdpin=PgMediacomBraun&pdbp=0&skuid=J_%s&callback=cnp' % (id)
-        content = urllib.urlopen(price_url).read()
+        content = urllib.urlopen(price_url,proxies=proxies).read()
         price_pattern = re.compile("p\":\"(.*?)\"")
         price = price_pattern.findall(content)
         try:
@@ -68,35 +82,39 @@ class JDitem:
 
     @staticmethod
     def get_static_parameter(id):
-        item_url = 'http://item.jd.com/%s.html' % (id)
-        data = (urllib2.urlopen(item_url)).read()
-        charset = chardet.detect(data)
-        code = charset['encoding']
-        content = str(data).decode(code, 'ignore').encode('utf8')
-        content = content.replace('\n', '')
-        title_pattern = re.compile('<h1>(.*?)</h1>')
-        group = title_pattern.findall(content)
-        title = group[0]
-
-
-        parameter_pattern = re.compile('<div class=\"p-parameter\".*?</div>')
-        group = parameter_pattern.findall(content)
-        p_parameter = group[0]
-        li_pattern = re.compile("<li title=.*?/li>")
-        parameter_list = li_pattern.findall(p_parameter)
+        title = ''
         parameter_dict = {}
-        for parameter in parameter_list:
+        try:
+            item_url = 'http://item.jd.com/%s.html' % (id)
+            data = (urllib2.urlopen(item_url)).read()
+            charset = chardet.detect(data)
+            code = charset['encoding']
+            content = str(data).decode(code, 'ignore').encode('utf8')
+            content = content.replace('\n', '')
+            title_pattern = re.compile('<h1>(.*?)</h1>')
+            group = title_pattern.findall(content)
+            title = group[0]
 
-            value_pattern = re.compile("<li title='(.*?)'")
-            group = value_pattern.findall(parameter)
-            value = group[0]
 
-            key_pattern = re.compile("'>(.*?)：")
-            group = key_pattern.findall(parameter)
-            key = group[0]
+            parameter_pattern = re.compile('<div class=\"p-parameter\".*?</div>')
+            group = parameter_pattern.findall(content)
+            parameter_dict = {}
+            p_parameter = group[0]
+            li_pattern = re.compile("<li title=.*?/li>")
+            parameter_list = li_pattern.findall(p_parameter)
+            for parameter in parameter_list:
 
-            parameter_dict[key] = value
+                value_pattern = re.compile("<li title='(.*?)'")
+                group = value_pattern.findall(parameter)
+                value = group[0]
 
+                key_pattern = re.compile("'>(.*?)：")
+                group = key_pattern.findall(parameter)
+                key = group[0]
+
+                parameter_dict[key] = value
+        except:
+            print 'bug in p_parameter'
         return title, parameter_dict
 
 
@@ -114,6 +132,7 @@ class JDitem:
             subtitle = group[0].replaceAll('<a>.*?</a>','')
         except:
             subtitle = ''
+
         promotion_pattern = re.compile("content\":\"(.*?)\"")
         group = promotion_pattern.findall(content)
         try:
@@ -172,7 +191,7 @@ def write_record(keyword, total_item_list, total_parameter_list):
         count += 1
     return record_list
 
-def writeXls(record_list, total_parameter_list):
+def writeXls(area, record_list, total_parameter_list):
     print "正在写入excel表格中>>>"
     wbk = xlwt.Workbook(encoding='utf-8', style_compression=0)
     sheet = wbk.add_sheet('sheet 1', cell_overwrite_ok=True)
@@ -192,11 +211,11 @@ def writeXls(record_list, total_parameter_list):
             elememt = record[k]
             sheet.write(j, k, elememt)
         j += 1
-    wbk.save('JDSearch.xls')
+    wbk.save(area + 'jd.xls')
     print "xls数据写入完毕"
 
-def main():
-    keyword = '洗发水'
+def main(area):
+    keyword = '面膜'
     jd = JDMobile(keyword=keyword)
     wareList = jd.get_wareList()
     total_parameter_list = list()
@@ -205,16 +224,32 @@ def main():
         item_list = JDitem.get_itemInfo(id)
         total_item_list.append(item_list)
         item_parameters = item_list[5]
-        time.sleep(3)
+        # time.sleep(3)
         for para in item_parameters:
             if para not in total_parameter_list:
                 total_parameter_list.append(para)
 
     ## 将结果添加到记录当中
     record_list = write_record(keyword, total_item_list, total_parameter_list)
-    writeXls(record_list=record_list, total_parameter_list=total_parameter_list)
+    writeXls(area,record_list=record_list, total_parameter_list=total_parameter_list)
 
-
+def readIP():
+    ip_list = []
+    filename = 'activeip.txt'
+    lines = open(filename).readlines()
+    for line in lines:
+        ip_list.append(line.strip())
+    return ip_list
 
 if __name__ == '__main__':
-    main()
+    ip_list = readIP()
+    for info in ip_list:
+        print info
+        start_time = time.time()
+        group = info.split('@')
+        ip = group[0]
+        area = group[1]
+        proxies['http'] = 'http://' + ip
+        main(area)
+        end_time = time.time()
+        print end_time - start_time
