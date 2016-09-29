@@ -1,3 +1,4 @@
+# coding=utf-8
 import urllib
 import time
 import signal
@@ -27,25 +28,31 @@ def ipIsInvalid(ip):
         signal.alarm(0)
         return True
     except AssertionError:
-        print "timeout"
-
+        # print "timeout"
+        pass
 
 
 def testUrl(proxies):
     try:
-        filehandle = urllib.urlopen('http://www.baidu.com',proxies = proxies)
+        filehandle = urllib.urlopen('http://so.m.jd.com/ware/searchList.action?_format_=json&stock=1&sort=&&page=1&keyword=面膜',proxies = proxies)
         filehandle.read()
     except:
         print 'refuse'
+        pass
 
 def main():
     ip_list,lines = getIP()
+    active_ip = []
+    areas = []
     for line in lines:
         group = line.split('@')
         ip = group[0]
         if ipIsInvalid(ip) is True:
-            print line
-
+            area = group[1]
+            if area not in areas:
+                areas.append(area)
+                active_ip.append(line.strip())
+                print line.strip()
 
 if __name__ == '__main__':
     main()
