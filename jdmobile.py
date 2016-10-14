@@ -7,13 +7,13 @@ import time
 import urllib2
 import xlwt
 
-proxies1 = {'http':'http://203.187.160.133:80'}          # 北京市海淀区
-proxies2 = {'http':'http://122.224.183.170:9999'}        # 浙江省杭州市
-proxies3 = {'http':'http://113.66.170.40:1080'}          # 广东省广州市
-proxies4 = {'http':'http://182.254.223.93.3128'}         # 广东省深圳市
+from selenium import webdriver
 
-proxies = {}
+proxies = {}  ## 加入代理ip的字典
 
+
+"""商品属性"""
+total_parameters = [u'搜索关键词',u'商品坑位排名',u'商品Url',u'商品主标题',u'商品副标题',u'商品价格',u'商品促销信息',u'商品名称',u'商品编号',u'品牌',u'店铺',u'商品毛重',u'商品产地',u'货号',u'适合肤质',u'功效',u'产品产地',u'性别',u'分类',u'类型',u'面贴膜数量']
 
 
 class JDMobile:
@@ -22,39 +22,46 @@ class JDMobile:
         self.keyword = keyword
 
 
-    def get_url(self, page):
-        url = 'http://so.m.jd.com/ware/searchList.action?_format_=json&stock=1&sort=&&page=%s&keyword=%s'% (page, self.keyword)
+    def get_url(self, page ,type):
+        ## 模拟手机滑动,查看列表, 主要参数是sort, sort=0为综合排序, sort=1为销量排序
+        url = 'http://so.m.jd.com/ware/searchList.action?_format_=json&stock=1&sort=%s&&page=%s&keyword=%s'% (page, type, self.keyword)
         return url
 
-    def get_wareList(self):
+    def get_wareList(self, type):
 
         """获取商品排名列表"""
 
         wareList = list()
         page = 1
+        item_num = 2000  ## 要获取的目标数量
         while True:
-            url = self.get_url(page)
+            url = self.get_url(page, type)
             print proxies
             content = urllib.urlopen(url, proxies=proxies).read()
             content = content.replace('\n', '')
             wareList_content = self.match_wareList(content)
-            if wareList_content is None or wareList.__len__() >= 200:
+            if wareList_content is None or wareList.__len__() >= item_num:
                 break
             ware_ids = self.match_wareId(wareList_content)
             for id in ware_ids:
                 wareList.append(id)
             page += 1
-            # time.sleep(3)
+            # time.sleep(1)
         print 'len:', wareList.__len__()
 
         return wareList
 
+
     def match_wareList(self,content):
+
+        """匹配商品坑位列表"""
         wareList_pattern = re.compile("\"wareList.*?:\[\{.*\}\]\}")
         wareList_content = wareList_pattern.findall(content)
         return wareList_content[0]
 
     def match_wareId(self, wareList_content):
+
+        """在商品坑位列表，匹配商品的id"""
         wareId_pattern = re.compile('wareId.*?:.*?(\d+)')
         ware_ids = wareId_pattern.findall(wareList_content)
         print ware_ids
@@ -66,15 +73,29 @@ class JDitem:
 
     @staticmethod
     def get_item_url(id):
+
+        """获取商品的详情页"""
         item_url = "http://item.jd.com/%s.html" % (id)
         return item_url
 
+
+
     @staticmethod
     def get_price(id):
-        price_url = 'http://p.3.cn/prices/get?type=1&area=1_2802_2821&pdtk=&pduid=911197429&pdpin=PgMediacomBraun&pdbp=0&skuid=J_%s&callback=cnp' % (id)
-        content = urllib.urlopen(price_url,proxies=proxies).read()
-        price_pattern = re.compile("p\":\"(.*?)\"")
+
+        """获取商品的价格"""
+        price_url = 'http://item.m.jd.com/product/%s.html' %(id)
+        content = urllib.urlopen(price_url).read().replace("\n","")
+        price_pattern = re.compile("<input type=\"hidden\" id=\"jdPrice\" name=\"jdPrice\" value=\"(.*?)\"/>")
         price = price_pattern.findall(content)
+        if len(price) == 0:     ##出现全球购的情况
+            price_url = 'http://mitem.jd.hk/product/1963190765.html'
+            browser = webdriver.PhantomJS()
+            browser.get(price_url)
+            content = browser.page_source
+            price_pattern = re.compile("<span class=\"big-price\">(.*?)</span>")
+            price = price_pattern.findall(content)
+
         try:
             return price[0]
         except:
@@ -82,6 +103,8 @@ class JDitem:
 
     @staticmethod
     def get_static_parameter(id):
+
+        """获取商品的静态属性"""
         title = ''
         parameter_dict = {}
         try:
@@ -93,26 +116,33 @@ class JDitem:
             content = content.replace('\n', '')
             title_pattern = re.compile('<h1>(.*?)</h1>')
             group = title_pattern.findall(content)
-            title = group[0]
+            title = group[0].replace(" ","")
 
 
             parameter_pattern = re.compile('<div class=\"p-parameter\".*?</div>')
             group = parameter_pattern.findall(content)
             parameter_dict = {}
-            p_parameter = group[0]
+            if len(group) == 0 :
+                parameter_pattern = re.compile('<div class=\"parameter-content\".*?</div>')
+                group = parameter_pattern.findall(content)
+                p_parameter = group[0]
+            else:
+                p_parameter = group[0]
             li_pattern = re.compile("<li title=.*?/li>")
             parameter_list = li_pattern.findall(p_parameter)
             for parameter in parameter_list:
 
                 value_pattern = re.compile("<li title='(.*?)'")
                 group = value_pattern.findall(parameter)
-                value = group[0]
+                value = group[0].decode('utf8')
 
                 key_pattern = re.compile("'>(.*?)：")
                 group = key_pattern.findall(parameter)
-                key = group[0]
+                key = group[0].decode('utf8')
+
 
                 parameter_dict[key] = value
+
         except:
             print 'bug in p_parameter'
         return title, parameter_dict
@@ -120,16 +150,20 @@ class JDitem:
 
     @staticmethod
     def get_subtitle_and_promotion(id):
+
+        """获取副标题和促销信息"""
         url = 'http://cd.jd.com/promotion/v2?callback=jQuery5780193&skuId='+id+'&area=1_2802_2821_0&shopId=1000002836&venderId=1000002836&cat=737%2C1276%2C739&_=1474185064703'
         data = (urllib2.urlopen(url)).read()
+
         charset = chardet.detect(data)
         code = charset['encoding']
         content = str(data).decode(code, 'ignore').encode('utf8')
         content = content.replace('\n', '')
-        subtitle_pattern = re.compile("ad\":\"(.*?)\"")
+        subtitle_pattern = re.compile("ad\":\"(.*?)\"}]")
         group = subtitle_pattern.findall(content)
+
         try:
-            subtitle = group[0].replaceAll('<a>.*?</a>','')
+            subtitle = group[0]
         except:
             subtitle = ''
 
@@ -143,6 +177,8 @@ class JDitem:
 
     @staticmethod
     def get_itemInfo(id):
+
+        """获取商品的具体属性"""
         title , parameter_dict = JDitem.get_static_parameter(id)
         subtitle, promotion = JDitem.get_subtitle_and_promotion(id)
         price = JDitem.get_price(id)
@@ -168,6 +204,7 @@ class JDitem:
 
 def write_record(keyword, total_item_list, total_parameter_list):
 
+    """将每一项数据记录到一个列表中"""
     record_list = []
     count = 1
     for item in total_item_list:
@@ -178,13 +215,14 @@ def write_record(keyword, total_item_list, total_parameter_list):
         item_record.append(item[0])  # url
         item_record.append(item[1])  # 主标题
         item_record.append(item[2])  # 副标题
-        item_record.append(item[3])  # 价格
-        item_record.append(item[4])  # 促销信息
+        item_record.append(item[3])  # 商品价格
+        item_record.append(item[4])  # 商品促销信息
         parameters = item[5]  # 添加属性
-        for i in range(0, para_length, 1):
-            if total_parameter_list[i] in parameters:
-                key = total_parameter_list[i]
-                item_record.append(parameters[key])
+        print parameters
+        for i in range(7, len(total_parameters), 1):
+            if total_parameters[i] in parameters:
+                key = total_parameters[i]
+                item_record.append(parameters.get(key))
             else:
                 item_record.append(' ')
         record_list.append(item_record)
@@ -192,18 +230,12 @@ def write_record(keyword, total_item_list, total_parameter_list):
     return record_list
 
 def writeXls(area, record_list, total_parameter_list):
+
     print "正在写入excel表格中>>>"
     wbk = xlwt.Workbook(encoding='utf-8', style_compression=0)
     sheet = wbk.add_sheet('sheet 1', cell_overwrite_ok=True)
-    sheet.write(0, 0, u'关键词')
-    sheet.write(0, 1, u'排名')
-    sheet.write(0, 2, u'商品url')
-    sheet.write(0, 3, u'主标题')
-    sheet.write(0, 4, u'副标题')
-    sheet.write(0, 5, u'价格')
-    sheet.write(0, 6, u'促销信息')
-    for i in range(0, total_parameter_list.__len__(), 1):
-        sheet.write(0, i+7, total_parameter_list[i])
+    for i in range(0, len(total_parameters), 1):
+        sheet.write(0, i, total_parameters[i])
 
     j = 1
     for record in record_list:
@@ -214,17 +246,18 @@ def writeXls(area, record_list, total_parameter_list):
     wbk.save(area + 'jd.xls')
     print "xls数据写入完毕"
 
-def main(area):
-    keyword = '面膜'
-    jd = JDMobile(keyword=keyword)
-    wareList = jd.get_wareList()
+def main(area, type):
+
+    keyword = '面膜'  # 搜索关键词
+    jd = JDMobile(keyword=keyword)  # 获取搜索坑位排序
+    wareList = jd.get_wareList(type)
     total_parameter_list = list()
     total_item_list = list()
     for id in wareList:
         item_list = JDitem.get_itemInfo(id)
         total_item_list.append(item_list)
         item_parameters = item_list[5]
-        # time.sleep(3)
+        # time.sleep(1)
         for para in item_parameters:
             if para not in total_parameter_list:
                 total_parameter_list.append(para)
@@ -234,6 +267,8 @@ def main(area):
     writeXls(area,record_list=record_list, total_parameter_list=total_parameter_list)
 
 def readIP():
+
+    """读取ip列表"""
     ip_list = []
     filename = 'activeip.txt'
     lines = open(filename).readlines()
@@ -242,14 +277,27 @@ def readIP():
     return ip_list
 
 if __name__ == '__main__':
-    ip_list = readIP()
-    for info in ip_list:
-        print info
-        start_time = time.time()
-        group = info.split('@')
-        ip = group[0]
-        area = group[1]
-        proxies['http'] = 'http://' + ip
-        main(area)
-        end_time = time.time()
-        print end_time - start_time
+    while(True):
+        if 'tm_hour=15' in str(time.localtime()):
+            start_time = time.time()
+            ip_list = readIP()  ## 读取ip任务列表
+
+            for info in ip_list:
+                print info
+                group = info.split('@')
+                ip = group[0]   # 代理ip或ip
+                area = group[1] # 地区
+                type = group[2] # 类型，类型0为综合,1为销量
+                if ip == 'None':
+                    proxies = None
+                else:
+                    proxies['http'] = 'http://' + ip
+                ISOTIMEFORMAT = "%Y%m%d"  # 写入获取的时间
+                nowdate = time.strftime(ISOTIMEFORMAT, time.localtime())
+                main(area+nowdate,type)
+
+            end_time = time.time()
+            print end_time - start_time
+        else:
+            print 'sleeping'
+            time.sleep(3)
